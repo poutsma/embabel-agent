@@ -17,6 +17,7 @@ package com.embabel.agent.api.common.support
 
 import com.embabel.agent.api.common.*
 import com.embabel.agent.api.common.nested.ObjectCreator
+import com.embabel.agent.api.common.nested.PromptRunnerTemplateOperations
 import com.embabel.agent.api.common.nested.TemplateOperations
 import com.embabel.agent.api.common.nested.support.PromptRunnerObjectCreator
 import com.embabel.agent.api.common.streaming.StreamingPromptRunner
@@ -214,7 +215,7 @@ internal data class OperationContextPromptRunner(
     }
 
     override fun withTemplate(templateName: String): TemplateOperations {
-        return TemplateOperations(
+        return PromptRunnerTemplateOperations(
             templateName = templateName,
             promptRunnerOperations = this,
             templateRenderer = context.agentPlatform().platformServices.templateRenderer,

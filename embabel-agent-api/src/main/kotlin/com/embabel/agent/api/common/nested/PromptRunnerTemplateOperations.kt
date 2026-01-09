@@ -13,29 +13,48 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.embabel.agent.api.common.nested
 
+import com.embabel.agent.api.common.PromptRunnerOperations
 import com.embabel.chat.AssistantMessage
 import com.embabel.chat.Conversation
+import com.embabel.chat.SystemMessage
+import com.embabel.common.textio.template.TemplateRenderer
 
-interface TemplateOperations {
+/**
+ * Llm operations based on a compiled template.
+ * Similar to [com.embabel.agent.api.common.PromptRunnerOperations], but taking a model instead of a template string.
+ * Template names will be resolved by the [com.embabel.common.textio.template.TemplateRenderer] provided.
+ */
+class PromptRunnerTemplateOperations(
+    templateName: String,
+    templateRenderer: TemplateRenderer,
+    private val promptRunnerOperations: PromptRunnerOperations,
+) : TemplateOperations {
+
+    private val compiledTemplate = templateRenderer.compileLoadedTemplate(templateName)
+
     /**
      * Create an object of the given type using the given model to render the template
      * and LLM options from context
      */
-    fun <T> createObject(
+    override fun <T> createObject(
         outputClass: Class<T>,
         model: Map<String, Any>,
-    ): T
+    ): T = promptRunnerOperations.createObject(
+        prompt = compiledTemplate.render(model = model),
+        outputClass = outputClass,
+    )
 
     /**
      * Generate text using the given model to render the template
      * and LLM options from context
      */
-    fun generateText(
+    override fun generateText(
         model: Map<String, Any>,
-    ): String
+    ): String = promptRunnerOperations.generateText(
+        prompt = compiledTemplate.render(model = model),
+    )
 
     /**
      * Respond in the conversation using the rendered template as system prompt.
@@ -44,8 +63,14 @@ interface TemplateOperations {
      * Defaults to the empty map (which is appropriate for static templates)
      */
     @JvmOverloads
-    fun respondWithSystemPrompt(
+    override fun respondWithSystemPrompt(
         conversation: Conversation,
-        model: Map<String, Any> = emptyMap(),
-    ): AssistantMessage
+        model: Map<String, Any>,
+    ): AssistantMessage = promptRunnerOperations.respond(
+        messages = listOf(
+            SystemMessage(
+                content = compiledTemplate.render(model = model)
+            )
+        ) + conversation.messages,
+    )
 }

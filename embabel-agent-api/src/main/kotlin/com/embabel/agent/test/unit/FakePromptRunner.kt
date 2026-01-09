@@ -17,6 +17,7 @@ package com.embabel.agent.test.unit
 
 import com.embabel.agent.api.common.*
 import com.embabel.agent.api.common.nested.ObjectCreator
+import com.embabel.agent.api.common.nested.PromptRunnerTemplateOperations
 import com.embabel.agent.api.common.nested.TemplateOperations
 import com.embabel.agent.api.common.nested.support.PromptRunnerObjectCreator
 import com.embabel.agent.api.tool.Tool
@@ -218,7 +219,7 @@ data class FakePromptRunner(
         )
 
     override fun withTemplate(templateName: String): TemplateOperations {
-        return TemplateOperations(
+        return PromptRunnerTemplateOperations(
             templateName,
             templateRenderer = JinjavaTemplateRenderer(),
             promptRunnerOperations = this,
