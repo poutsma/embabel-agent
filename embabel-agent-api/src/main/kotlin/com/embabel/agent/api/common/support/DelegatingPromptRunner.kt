@@ -13,22 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.embabel.agent.api.common.support
 
-import com.embabel.agent.api.common.AgentImage
-import com.embabel.agent.api.common.ContextualPromptElement
-import com.embabel.agent.api.common.InteractionId
-import com.embabel.agent.api.common.PromptRunner
-import com.embabel.agent.api.common.Subagent
-import com.embabel.agent.api.common.ToolObject
+import com.embabel.agent.api.common.*
 import com.embabel.agent.api.common.nested.ObjectCreator
-import com.embabel.agent.api.common.nested.PromptRunnerTemplateOperations
+import com.embabel.agent.api.common.nested.TemplateOperations
 import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.core.ToolGroup
 import com.embabel.agent.core.ToolGroupRequirement
 import com.embabel.agent.core.Verbosity
+import com.embabel.agent.experimental.primitive.Determination
 import com.embabel.agent.spi.support.springai.toSpringToolCallback
 import com.embabel.agent.tools.agent.AgentToolCallback
 import com.embabel.agent.tools.agent.Handoffs
@@ -41,7 +36,7 @@ import com.embabel.common.util.loggerFor
 import java.util.function.Predicate
 
 internal class DelegatingPromptRunner(
-    private val delegate: OperationContextDelegate
+    private val delegate: PromptExecutionDelegate
 ) : PromptRunner {
 
     override val llm: LlmOptions
@@ -120,7 +115,7 @@ internal class DelegatingPromptRunner(
                 inputType = subagent.inputClass,
                 processOptionsCreator = { agentProcess ->
                     val blackboard = agentProcess.processContext.blackboard.spawn()
-                    loggerFor<OperationContextPromptRunner>().info(
+                    loggerFor<DelegatingPromptRunner>().info(
                         "Creating subagent process for {} with blackboard {}",
                         agent.name,
                         blackboard,
@@ -151,31 +146,50 @@ internal class DelegatingPromptRunner(
         copy(delegate = delegate.withValidation(validation))
 
     override fun <T> creating(outputClass: Class<T>): ObjectCreator<T> =
-        TODO("Not yet implemented")
-}
+        delegate.creating(outputClass);
 
+    override fun <T> createObject(
+        messages: List<Message>,
+        outputClass: Class<T>
+    ): T =
+        delegate.createObject(messages, outputClass)
 
-override fun <T> createObject(
-    messages: List<Message>,
-    outputClass: Class<T>
-): T =
-    delegate.createObject(messages, outputClass)
+    override fun <T> createObjectIfPossible(
+        messages: List<Message>,
+        outputClass: Class<T>
+    ): T? =
+        delegate.createObjectIfPossible(messages, outputClass)
 
-override fun <T> createObjectIfPossible(
-    messages: List<Message>,
-    outputClass: Class<T>
-): T? =
-    delegate.createObjectIfPossible(messages, outputClass)
+    override fun withTemplate(templateName: String): TemplateOperations =
+        delegate.withTemplate(templateName)
 
-override fun withTemplate(templateName: String): PromptRunnerTemplateOperations {
-    TODO("Not yet implemented")
-}
+    override fun evaluateCondition(
+        condition: String,
+        context: String,
+        confidenceThreshold: ZeroToOne
+    ): Boolean {
+        val prompt =
+            """
+            Evaluate this condition given the context.
+            Return "result": whether you think it is true, your confidence level from 0-1,
+            and an explanation of what you base this on.
 
-override fun evaluateCondition(
-    condition: String,
-    context: String,
-    confidenceThreshold: ZeroToOne
-): Boolean {
-    TODO("Not yet implemented")
-}
+            # Condition
+            $condition
+
+            # Context
+            $context
+            """.trimIndent()
+        val determination = createObject(
+            prompt = prompt,
+            outputClass = Determination::class.java,
+        )
+        loggerFor<DelegatingPromptRunner>().info(
+            "Condition {}: determination from {} was {}",
+            condition,
+            llm.criteria,
+            determination,
+        )
+        return determination.result && determination.confidence >= confidenceThreshold
+    }
 }

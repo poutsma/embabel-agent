@@ -13,10 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.embabel.agent.api.common.support
 
 import com.embabel.agent.api.common.*
+import com.embabel.agent.api.common.nested.ObjectCreator
+import com.embabel.agent.api.common.nested.TemplateOperations
+import com.embabel.agent.api.common.nested.support.DelegatingObjectCreator
+import com.embabel.agent.api.common.nested.support.DelegatingTemplateOperations
 import com.embabel.agent.core.ToolGroupRequirement
 import com.embabel.agent.core.support.safelyGetToolCallbacks
 import com.embabel.agent.spi.LlmInteraction
@@ -30,62 +33,76 @@ import org.springframework.ai.tool.ToolCallback
 import java.util.function.Predicate
 
 internal data class OperationContextDelegate(
-    val context: OperationContext,
+    override val context: OperationContext,
     private val interactionId: InteractionId? = null,
-    val llm: LlmOptions,
-    val messages: List<Message> = emptyList(),
-    val images: List<AgentImage> = emptyList(),
-    val toolGroups: Set<ToolGroupRequirement>,
-    val toolObjects: List<ToolObject>,
-    val promptContributors: List<PromptContributor>,
+    override val llm: LlmOptions,
+    override val messages: List<Message> = emptyList(),
+    override val images: List<AgentImage> = emptyList(),
+    override val toolGroups: Set<ToolGroupRequirement>,
+    override val toolObjects: List<ToolObject>,
+    override val promptContributors: List<PromptContributor>,
     private val contextualPromptContributors: List<ContextualPromptElement>,
-    val generateExamples: Boolean?,
-    val propertyFilter: Predicate<String> = Predicate { true },
-    val validation: Boolean = true,
+    override val generateExamples: Boolean?,
+    override val propertyFilter: Predicate<String> = Predicate { true },
+    override val validation: Boolean = true,
     private val otherToolCallbacks: List<ToolCallback> = emptyList(),
-) {
+) : PromptExecutionDelegate {
 
-    val action = (context as? ActionContext)?.action
+    override val action = (context as? ActionContext)?.action
 
-    fun withInteractionId(interactionId: InteractionId): OperationContextDelegate =
+    override fun withInteractionId(interactionId: InteractionId): OperationContextDelegate =
         copy(interactionId = interactionId)
 
-    fun withMessages(messages: List<Message>): OperationContextDelegate =
+    override fun withMessages(messages: List<Message>): OperationContextDelegate =
         copy(messages = this.messages + messages)
 
-    fun withImages(images: List<AgentImage>): OperationContextDelegate =
+    override fun withImages(images: List<AgentImage>): OperationContextDelegate =
         copy(images = this.images + images)
 
-    fun withLlm(llm: LlmOptions): OperationContextDelegate =
+    override fun withLlm(llm: LlmOptions): OperationContextDelegate =
         copy(llm = llm)
 
-    fun withToolGroup(toolGroup: ToolGroupRequirement): OperationContextDelegate =
+    override fun withToolGroup(toolGroup: ToolGroupRequirement): OperationContextDelegate =
         copy(toolGroups = this.toolGroups + toolGroup)
 
-    fun withOtherToolCallbacks(toolCallbacks: List<ToolCallback>): OperationContextDelegate =
+    override fun withOtherToolCallbacks(toolCallbacks: List<ToolCallback>): OperationContextDelegate =
         copy(otherToolCallbacks = this.otherToolCallbacks + toolCallbacks)
 
-    fun withToolObject(toolObject: ToolObject): OperationContextDelegate =
+    override fun withToolObject(toolObject: ToolObject): OperationContextDelegate =
         copy(toolObjects = this.toolObjects + toolObject)
 
-    fun withPromptContributors(promptContributors: List<PromptContributor>): OperationContextDelegate =
+    override fun withPromptContributors(promptContributors: List<PromptContributor>): OperationContextDelegate =
         copy(promptContributors = this.promptContributors + promptContributors)
 
-    fun withContextualPromptContributors(
+    override fun withContextualPromptContributors(
         contextualPromptContributors: List<ContextualPromptElement>,
     ): OperationContextDelegate =
         copy(contextualPromptContributors = this.contextualPromptContributors + contextualPromptContributors)
 
-    fun withGenerateExamples(generateExamples: Boolean): OperationContextDelegate =
+    override fun withGenerateExamples(generateExamples: Boolean): OperationContextDelegate =
         copy(generateExamples = generateExamples)
 
-    fun withPropertyFilter(filter: Predicate<String>): OperationContextDelegate =
+    override fun withPropertyFilter(filter: Predicate<String>): OperationContextDelegate =
         copy(propertyFilter = this.propertyFilter.and(filter))
 
-    fun withValidation(validation: Boolean): OperationContextDelegate =
+    override fun withValidation(validation: Boolean): OperationContextDelegate =
         copy(validation = validation)
 
-    fun <T> createObject(
+    override fun <T> creating(outputClass: Class<T>): ObjectCreator<T> =
+        DelegatingObjectCreator(
+            delegate = this,
+            outputClass = outputClass,
+            objectMapper = context.agentPlatform().platformServices.objectMapper,
+        )
+
+    override fun withTemplate(templateName: String): TemplateOperations =
+        DelegatingTemplateOperations(
+            delegate = this,
+            templateName = templateName,
+            templateRenderer = context.agentPlatform().platformServices.templateRenderer,
+        )
+
+    override fun <T> createObject(
         messages: List<Message>,
         outputClass: Class<T>,
     ): T {
@@ -113,7 +130,7 @@ internal data class OperationContextDelegate(
         )
     }
 
-    fun <T> createObjectIfPossible(
+    override fun <T> createObjectIfPossible(
         messages: List<Message>,
         outputClass: Class<T>,
     ): T? {
@@ -139,7 +156,7 @@ internal data class OperationContextDelegate(
             action = action,
         )
         if (result.isFailure) {
-            loggerFor<OperationContextPromptRunner>().warn(
+            loggerFor<OperationContextDelegate>().warn(
                 "Failed to create object of type {} with messages {}: {}",
                 outputClass.name,
                 messages,
@@ -153,7 +170,7 @@ internal data class OperationContextDelegate(
      * Combine stored images with messages.
      * If there are images, they are added to the last message or a new UserMessage is created.
      */
-    private fun combineImagesWithMessages(messages: List<Message>): List<Message> {
+    override fun combineImagesWithMessages(messages: List<Message>): List<Message> {
         if (images.isEmpty()) {
             return messages
         }
@@ -185,6 +202,5 @@ internal data class OperationContextDelegate(
     ): InteractionId {
         return InteractionId("${context.operation.name}-${outputClass.name}")
     }
-
 
 }

@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.embabel.agent.api.common.nested
 
 import com.embabel.chat.AssistantMessage
@@ -43,7 +42,16 @@ interface TemplateOperations {
      * @param model the model to render the system prompt template with.
      * Defaults to the empty map (which is appropriate for static templates)
      */
-    @JvmOverloads
+    fun respondWithSystemPrompt(
+        conversation: Conversation,
+    ): AssistantMessage = respondWithSystemPrompt(conversation, emptyMap())
+
+    /**
+     * Respond in the conversation using the rendered template as system prompt.
+     * @param conversation the conversation so far
+     * @param model the model to render the system prompt template with.
+     * Defaults to the empty map (which is appropriate for static templates)
+     */
     fun respondWithSystemPrompt(
         conversation: Conversation,
         model: Map<String, Any> = emptyMap(),

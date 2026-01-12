@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.embabel.agent.api.common.nested.support
 
 import com.embabel.agent.api.common.nested.TemplateOperations

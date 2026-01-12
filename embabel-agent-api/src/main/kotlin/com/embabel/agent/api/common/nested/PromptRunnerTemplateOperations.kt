@@ -62,7 +62,6 @@ class PromptRunnerTemplateOperations(
      * @param model the model to render the system prompt template with.
      * Defaults to the empty map (which is appropriate for static templates)
      */
-    @JvmOverloads
     override fun respondWithSystemPrompt(
         conversation: Conversation,
         model: Map<String, Any>,
