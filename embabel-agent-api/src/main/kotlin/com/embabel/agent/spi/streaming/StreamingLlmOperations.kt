@@ -37,7 +37,7 @@ import reactor.core.publisher.Flux
  * All streaming methods return Project Reactor Flux streams for integration
  * with Spring WebFlux and other reactive frameworks.
  */
-interface StreamingLlmOperations {
+internal interface StreamingLlmOperations {
 
     /**
      * Generate streaming text in the context of an AgentProcess.

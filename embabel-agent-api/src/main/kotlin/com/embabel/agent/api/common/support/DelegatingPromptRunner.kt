@@ -18,6 +18,8 @@ package com.embabel.agent.api.common.support
 import com.embabel.agent.api.common.*
 import com.embabel.agent.api.common.nested.ObjectCreator
 import com.embabel.agent.api.common.nested.TemplateOperations
+import com.embabel.agent.api.common.streaming.StreamingPromptRunner
+import com.embabel.agent.api.common.streaming.StreamingPromptRunnerOperations
 import com.embabel.agent.api.tool.Tool
 import com.embabel.agent.core.ProcessOptions
 import com.embabel.agent.core.ToolGroup
@@ -37,7 +39,7 @@ import java.util.function.Predicate
 
 internal class DelegatingPromptRunner(
     private val delegate: PromptExecutionDelegate
-) : PromptRunner {
+) : StreamingPromptRunner {
 
     override val llm: LlmOptions
         get() = delegate.llm
@@ -192,4 +194,11 @@ internal class DelegatingPromptRunner(
         )
         return determination.result && determination.confidence >= confidenceThreshold
     }
+
+    override fun supportsStreaming(): Boolean =
+        delegate.supportsStreaming()
+
+    override fun stream(): StreamingPromptRunnerOperations =
+        delegate.stream()
+
 }

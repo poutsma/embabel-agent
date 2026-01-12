@@ -18,6 +18,7 @@ package com.embabel.agent.api.common.support
 import com.embabel.agent.api.common.*
 import com.embabel.agent.api.common.nested.ObjectCreator
 import com.embabel.agent.api.common.nested.TemplateOperations
+import com.embabel.agent.api.common.streaming.StreamingPromptRunnerOperations
 import com.embabel.agent.core.Action
 import com.embabel.agent.core.ToolGroupRequirement
 import com.embabel.chat.Message
@@ -71,4 +72,6 @@ internal interface PromptExecutionDelegate {
     fun withInteractionId(interactionId: InteractionId): OperationContextDelegate
     fun <T> creating(outputClass: Class<T>): ObjectCreator<T>
     fun withTemplate(templateName: String): TemplateOperations
+    fun supportsStreaming(): Boolean
+    fun stream(): StreamingPromptRunnerOperations
 }

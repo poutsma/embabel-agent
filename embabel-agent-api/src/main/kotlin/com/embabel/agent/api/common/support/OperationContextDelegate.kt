@@ -20,9 +20,14 @@ import com.embabel.agent.api.common.nested.ObjectCreator
 import com.embabel.agent.api.common.nested.TemplateOperations
 import com.embabel.agent.api.common.nested.support.DelegatingObjectCreator
 import com.embabel.agent.api.common.nested.support.DelegatingTemplateOperations
+import com.embabel.agent.api.common.streaming.StreamingPromptRunnerOperations
+import com.embabel.agent.api.common.support.streaming.StreamingCapabilityDetector
+import com.embabel.agent.api.common.support.streaming.StreamingPromptRunnerOperationsImpl
 import com.embabel.agent.core.ToolGroupRequirement
 import com.embabel.agent.core.support.safelyGetToolCallbacks
 import com.embabel.agent.spi.LlmInteraction
+import com.embabel.agent.spi.support.springai.ChatClientLlmOperations
+import com.embabel.agent.spi.support.springai.streaming.StreamingChatClientOperations
 import com.embabel.chat.ImagePart
 import com.embabel.chat.Message
 import com.embabel.chat.UserMessage
@@ -203,4 +208,41 @@ internal data class OperationContextDelegate(
         return InteractionId("${context.operation.name}-${outputClass.name}")
     }
 
+    override fun supportsStreaming(): Boolean {
+        val llmOperations = context.agentPlatform().platformServices.llmOperations
+
+        return StreamingCapabilityDetector.supportsStreaming(llmOperations, this.llm)
+    }
+
+    override fun stream(): StreamingPromptRunnerOperations {
+        if (!supportsStreaming()) {
+            throw UnsupportedOperationException(
+                """
+                Streaming not supported by underlying LLM model.
+                Model type: ${context.agentPlatform().platformServices.llmOperations::class.simpleName}.
+                Check supportsStreaming() before calling stream().
+                """.trimIndent()
+            )
+        }
+
+        return StreamingPromptRunnerOperationsImpl(
+            streamingLlmOperations = StreamingChatClientOperations(
+                context.agentPlatform().platformServices.llmOperations as ChatClientLlmOperations
+            ),
+            interaction = LlmInteraction(
+                llm = llm,
+                toolGroups = toolGroups,
+                toolCallbacks = safelyGetToolCallbacks(toolObjects) + otherToolCallbacks,
+                promptContributors = promptContributors + contextualPromptContributors.map {
+                    it.toPromptContributor(context)
+                },
+                id = interactionId ?: InteractionId("${context.operation.name}-streaming"),
+                generateExamples = generateExamples,
+                propertyFilter = propertyFilter,
+            ),
+            messages = messages,
+            agentProcess = context.processContext.agentProcess,
+            action = action,
+        )
+    }
 }
