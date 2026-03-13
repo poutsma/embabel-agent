@@ -19,6 +19,7 @@ import com.sun.net.httpserver.HttpServer
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -73,22 +74,23 @@ class HttpContentFetcherTest {
             }
             server.start()
 
-            val result = createFetcher().fetch(URI("http://localhost:$port/page"))
+            val result = createFetcher().fetch(URI("http://localhost:$port/page")) { _, contentType, stream ->
+                assertEquals("text", contentType?.type)
+                assertEquals("html", contentType?.subtype)
+                assertEquals(Charsets.UTF_8, contentType?.charset)
+                stream.bufferedReader().use { it.readText() }
+            }
 
-            assertEquals("text", result.contentType?.type)
-            assertEquals("html", result.contentType?.subtype)
-            assertEquals(Charsets.UTF_8, result.contentType?.charset)
-            assertTrue(String(result.content).contains("Hello"))
+            assertTrue(result.contains("Hello"))
         }
 
         @Test
         fun `handles gzip compressed response`() {
             val html = "<html><body>Compressed content</body></html>"
             server.createContext("/gzip") { exchange ->
-                val compressed = ByteArrayOutputStream().use { baos ->
+                val compressed = ByteArrayOutputStream().also { baos ->
                     GZIPOutputStream(baos).use { it.write(html.toByteArray()) }
-                    baos.toByteArray()
-                }
+                }.toByteArray()
                 exchange.responseHeaders.add("Content-Type", "text/html")
                 exchange.responseHeaders.add("Content-Encoding", "gzip")
                 exchange.sendResponseHeaders(200, compressed.size.toLong())
@@ -96,9 +98,9 @@ class HttpContentFetcherTest {
             }
             server.start()
 
-            val result = createFetcher().fetch(URI("http://localhost:$port/gzip"))
+            val result = createFetcher().fetch(URI("http://localhost:$port/gzip"), ContentMapper.UTF_8_STRING)
 
-            assertTrue(String(result.content).contains("Compressed content"))
+            assertTrue(result.contains("Compressed content"))
         }
 
         @Test
@@ -111,11 +113,12 @@ class HttpContentFetcherTest {
             }
             server.start()
 
-            val result = createFetcher().fetch(URI("http://localhost:$port/no-charset"))
-
-            assertEquals("text", result.contentType?.type)
-            assertEquals("plain", result.contentType?.subtype)
-            assertEquals(null, result.contentType?.charset)
+            createFetcher().fetch(URI("http://localhost:$port/no-charset")) { _, contentType, stream ->
+                assertEquals("text", contentType?.type)
+                assertEquals("plain", contentType?.subtype)
+                assertNull(contentType?.charset)
+                stream.readBytes()
+            }
         }
     }
 
@@ -130,7 +133,7 @@ class HttpContentFetcherTest {
             server.start()
 
             assertThrows<IOException> {
-                createFetcher().fetch(URI("http://localhost:$port/error"))
+                createFetcher().fetch(URI("http://localhost:$port/error"), ContentMapper.BYTE_ARRAY)
             }
         }
     }
@@ -151,8 +154,8 @@ class HttpContentFetcherTest {
             }
             server.start()
 
-            val result = fetcher.fetch(URI("http://localhost:$port/timeout"))
-            assertNotNull(result.content)
+            val result = fetcher.fetch(URI("http://localhost:$port/timeout"), ContentMapper.BYTE_ARRAY)
+            assertNotNull(result)
         }
 
         @Test
@@ -174,7 +177,7 @@ class HttpContentFetcherTest {
                     "X-Custom" to "test-value",
                 ),
             )
-            fetcher.fetch(URI("http://localhost:$port/custom-headers"))
+            fetcher.fetch(URI("http://localhost:$port/custom-headers"), ContentMapper.BYTE_ARRAY)
 
             assertEquals("CustomBot/1.0", receivedUserAgent)
             assertEquals("test-value", receivedCustomHeader)
@@ -191,7 +194,7 @@ class HttpContentFetcherTest {
             }
             server.start()
 
-            createFetcher().fetch(URI("http://localhost:$port/default-headers"))
+            createFetcher().fetch(URI("http://localhost:$port/default-headers"), ContentMapper.BYTE_ARRAY)
 
             assertTrue(receivedUserAgent!!.contains("Mozilla"))
         }
@@ -209,19 +212,19 @@ class HttpContentFetcherTest {
             }
             server.start()
 
-            val result = createFetcher().fetch(URI("http://localhost:$port/no-content-type"))
+            val result =
+                createFetcher().fetch(URI("http://localhost:$port/no-content-type"), ContentMapper.UTF_8_STRING)
 
-            assertTrue(String(result.content).contains("raw data"))
+            assertTrue(result.contains("raw data"))
         }
 
         @Test
         fun `handles deflate compressed response`() {
             val html = "<html><body>Deflate content</body></html>"
             server.createContext("/deflate") { exchange ->
-                val compressed = java.io.ByteArrayOutputStream().use { baos ->
+                val compressed = ByteArrayOutputStream().also { baos ->
                     java.util.zip.DeflaterOutputStream(baos).use { it.write(html.toByteArray()) }
-                    baos.toByteArray()
-                }
+                }.toByteArray()
                 exchange.responseHeaders.add("Content-Type", "text/html")
                 exchange.responseHeaders.add("Content-Encoding", "deflate")
                 exchange.sendResponseHeaders(200, compressed.size.toLong())
@@ -229,9 +232,9 @@ class HttpContentFetcherTest {
             }
             server.start()
 
-            val result = createFetcher().fetch(URI("http://localhost:$port/deflate"))
+            val result = createFetcher().fetch(URI("http://localhost:$port/deflate"), ContentMapper.UTF_8_STRING)
 
-            assertTrue(String(result.content).contains("Deflate content"))
+            assertTrue(result.contains("Deflate content"))
         }
     }
 }

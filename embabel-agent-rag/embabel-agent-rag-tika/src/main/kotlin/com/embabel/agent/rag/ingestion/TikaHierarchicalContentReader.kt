@@ -15,6 +15,7 @@
  */
 package com.embabel.agent.rag.ingestion
 
+import com.embabel.agent.rag.ingestion.ContentMapper.Companion.BYTE_ARRAY
 import com.embabel.agent.rag.model.LeafSection
 import com.embabel.agent.rag.model.MaterializedDocument
 import com.embabel.agent.tools.file.FileReadTools
@@ -49,8 +50,7 @@ import java.util.*
  * supported by Apache Tika and returns a list of LeafSection objects that can be processed for RAG.
  */
 class TikaHierarchicalContentReader @JvmOverloads constructor(
-    private val contentFetcher: ContentFetcher = HttpContentFetcher(),
-    private val contentMapper: ContentMapper = ContentMapper.IDENTITY,
+    private val contentFetcher: ContentFetcher = HttpContentFetcher()
 ) : HierarchicalContentReader {
 
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -71,21 +71,21 @@ class TikaHierarchicalContentReader @JvmOverloads constructor(
         if (url.startsWith("http://") || url.startsWith("https://")) {
             logger.debug("Fetching URL via {}: {}", contentFetcher.javaClass.simpleName, url)
             val uri = java.net.URI(url)
-            val fetchResult = contentFetcher.fetch(uri)
-            val mappedContent = contentMapper.map(fetchResult.content, uri)
-            val metadata = Metadata()
-            val contentType = fetchResult.contentType
-            if (contentType != null) {
-                metadata[TikaCoreProperties.CONTENT_TYPE_HINT] = "${contentType.type}/${contentType.subtype}"
-                val charset = contentType.charset
-                if (charset != null) {
-                    metadata["charset"] = charset.name()
+            return contentFetcher.fetch(uri, ContentMapper { uri, contentType, stream ->
+                val metadata = Metadata()
+                if (contentType != null) {
+                    metadata[TikaCoreProperties.CONTENT_TYPE_HINT] = "${contentType.type}/${contentType.subtype}"
+                    val charset = contentType.charset
+                    if (charset != null) {
+                        metadata["charset"] = charset.name()
+                    }
                 }
-            }
-            return parseContent(java.io.ByteArrayInputStream(mappedContent), url, metadata)
+                parseContent(stream, url, metadata)
+            })
+        } else {
+            // For non-HTTP URLs, delegate to parseResource
+            return parseResource(url)
         }
-        // For non-HTTP URLs, delegate to parseResource
-        return parseResource(url)
     }
 
     override fun parseResource(

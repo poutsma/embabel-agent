@@ -23,10 +23,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.URI
 import java.nio.charset.StandardCharsets
-import org.springframework.util.MimeType
 
 class RssContentFetcherTest {
 
@@ -96,6 +96,17 @@ class RssContentFetcherTest {
 
         private val delegate = mockk<ContentFetcher>()
 
+        private fun setupDelegate() {
+            every { delegate.fetch<Any>(any(), any()) } answers {
+                val mapper = secondArg<ContentMapper<Any>>()
+                mapper.map(
+                    firstArg<URI>(),
+                    null,
+                    ByteArrayInputStream(feedWithContentEncoded.toByteArray(StandardCharsets.UTF_8)),
+                )
+            }
+        }
+
         private fun createFetcher(): RssContentFetcher {
             return RssContentFetcher(
                 feedResolver = FeedResolver { URI("https://blog.com/feed") },
@@ -105,54 +116,39 @@ class RssContentFetcherTest {
 
         @Test
         fun `delegates fetching to injected ContentFetcher`() {
-            every { delegate.fetch(any()) } returns FetchResult(
-                content = feedWithContentEncoded.toByteArray(StandardCharsets.UTF_8),
-                contentType = MimeType("application", "rss+xml"),
-            )
+            setupDelegate()
             val fetcher = createFetcher()
-            fetcher.fetch(URI("https://blog.com/pub/first-article"))
+            fetcher.fetch(URI("https://blog.com/pub/first-article"), ContentMapper.BYTE_ARRAY)
 
-            verify(exactly = 1) { delegate.fetch(URI("https://blog.com/feed")) }
+            verify(exactly = 1) { delegate.fetch<Any>(URI("https://blog.com/feed"), any()) }
         }
 
         @Test
         fun `extracts article content from fetched feed`() {
-            every { delegate.fetch(any()) } returns FetchResult(
-                content = feedWithContentEncoded.toByteArray(StandardCharsets.UTF_8),
-                contentType = MimeType("application", "rss+xml"),
-            )
-            val result = createFetcher().fetch(URI("https://blog.com/pub/first-article"))
+            setupDelegate()
+            val result = createFetcher().fetch(URI("https://blog.com/pub/first-article"), ContentMapper.UTF_8_STRING)
 
-            val html = String(result.content, StandardCharsets.UTF_8)
-            assertTrue(html.contains("Full article content here"))
-            assertEquals("text", result.contentType?.type)
-            assertEquals("html", result.contentType?.subtype)
-            assertEquals(Charsets.UTF_8, result.contentType?.charset)
+            assertTrue(result.contains("Full article content here"))
         }
 
         @Test
         fun `throws IOException when article not found in feed`() {
-            every { delegate.fetch(any()) } returns FetchResult(
-                content = feedWithContentEncoded.toByteArray(StandardCharsets.UTF_8),
-                contentType = MimeType("application", "rss+xml"),
-            )
+            setupDelegate()
 
             assertThrows<IOException> {
-                createFetcher().fetch(URI("https://blog.com/pub/nonexistent-article"))
+                createFetcher().fetch(URI("https://blog.com/pub/nonexistent-article"), ContentMapper.BYTE_ARRAY)
             }
         }
 
         @Test
         fun `uses FeedResolver to determine feed URL`() {
             val customResolver = FeedResolver { URI("https://custom.com/rss/${it.path.trimStart('/')}") }
-            every { delegate.fetch(any()) } returns FetchResult(
-                content = feedWithContentEncoded.toByteArray(StandardCharsets.UTF_8),
-            )
+            setupDelegate()
             val fetcher = RssContentFetcher(feedResolver = customResolver, delegate = delegate)
 
-            fetcher.fetch(URI("https://blog.com/pub/first-article"))
+            fetcher.fetch(URI("https://blog.com/pub/first-article"), ContentMapper.BYTE_ARRAY)
 
-            verify { delegate.fetch(URI("https://custom.com/rss/pub/first-article")) }
+            verify { delegate.fetch<Any>(URI("https://custom.com/rss/pub/first-article"), any()) }
         }
     }
 }

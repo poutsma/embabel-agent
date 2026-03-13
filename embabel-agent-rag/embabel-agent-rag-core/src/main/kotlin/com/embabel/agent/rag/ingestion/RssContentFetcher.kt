@@ -51,15 +51,14 @@ class RssContentFetcher(
     private val logger = LoggerFactory.getLogger(javaClass)
     private val rssMapper = RssContentMapper()
 
-    override fun fetch(uri: URI): FetchResult {
+    override fun <T> fetch(uri: URI, mapper: ContentMapper<T>): T {
         val feedUri = feedResolver.resolve(uri)
-        logger.info("Fetching RSS feed: {} (for article: {})", feedUri, uri)
-        val feedResult = delegate.fetch(feedUri)
-        val articleHtml = rssMapper.map(feedResult.content, uri)
-        return FetchResult(
-            content = articleHtml,
-            contentType = MimeType("text", "html", StandardCharsets.UTF_8),
-        )
+        val articleUri = uri
+        logger.info("Fetching RSS feed: {} (for article: {})", feedUri, articleUri)
+        return delegate.fetch(feedUri) { _, contentType, stream ->
+            val articleHtml = rssMapper.map(articleUri, contentType, stream)
+            mapper.map(articleUri, contentType, articleHtml)
+        }
     }
 
     companion object {

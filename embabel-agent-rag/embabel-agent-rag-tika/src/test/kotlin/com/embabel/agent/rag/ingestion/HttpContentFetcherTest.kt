@@ -30,12 +30,8 @@ class ContentFetcherInjectionTest {
         fun `TikaHierarchicalContentReader uses injected ContentFetcher for HTTP URLs`() {
             val html = "<html><body><h1>Test</h1><p>Content from custom fetcher</p></body></html>"
             val customFetcher = object : ContentFetcher {
-                override fun fetch(uri: URI): FetchResult {
-                    return FetchResult(
-                        content = html.toByteArray(),
-                        contentType = MimeType("text", "html", Charsets.UTF_8),
-                    )
-                }
+                override fun <T> fetch(uri: URI, mapper: ContentMapper<T>): T =
+                    mapper.map(uri, MimeType("text", "html", Charsets.UTF_8), html.byteInputStream())
             }
 
             val reader = TikaHierarchicalContentReader(contentFetcher = customFetcher)

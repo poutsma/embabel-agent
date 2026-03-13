@@ -52,7 +52,7 @@ class HttpContentFetcher @JvmOverloads constructor(
         client.close()
     }
 
-    override fun fetch(uri: URI): FetchResult {
+    override fun <T> fetch(uri: URI, mapper: ContentMapper<T>): T {
         logger.debug("Fetching URI: {}", uri)
         val effectiveHeaders = DEFAULT_HEADERS + headers
         val builder = HttpRequest.newBuilder(uri)
@@ -78,18 +78,15 @@ class HttpContentFetcher @JvmOverloads constructor(
         logger.debug("Content-Type: {}", contentType ?: "unknown")
         val contentEncoding = response.headers().firstValue("Content-Encoding").orElse(null)
         logger.debug("Content-Encoding: {}", contentEncoding ?: "none")
-        val content = response.body().use { rawStream ->
+
+        return response.body().use { rawStream ->
             val decompressed = when (contentEncoding?.lowercase()) {
                 "gzip" -> GZIPInputStream(rawStream)
                 "deflate" -> InflaterInputStream(rawStream)
                 else -> rawStream
             }
-            decompressed.use { it.readBytes() }
+            mapper.map(uri, contentType, decompressed)
         }
-        return FetchResult(
-            content = content,
-            contentType = contentType,
-        )
     }
 
     companion object {

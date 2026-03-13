@@ -43,13 +43,13 @@ class RoutingContentFetcher(
     private val logger = LoggerFactory.getLogger(javaClass)
     private val pathMatcher = AntPathMatcher()
 
-    override fun fetch(uri: URI): FetchResult {
+    override fun <T> fetch(uri: URI, mapper: ContentMapper<T>): T {
         val uriString = uri.toString()
         val match = routes.firstOrNull { (pattern, _) -> pathMatcher.match(pattern, uriString) }
         val fetcher = match?.second ?: default
         if (match != null) {
             logger.debug("URI '{}' matched route '{}', using {}", uri, match.first, fetcher.javaClass.simpleName)
         }
-        return fetcher.fetch(uri)
+        return fetcher.fetch(uri, mapper)
     }
 }

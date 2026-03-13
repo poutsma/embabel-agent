@@ -15,32 +15,12 @@
  */
 package com.embabel.agent.rag.ingestion
 
-import java.net.URI
 import org.springframework.util.MimeType
-
-/**
- * Result of fetching content from a URI.
- * @param content the raw content bytes
- * @param contentType the MIME type of the content, or null if unknown.
- *        Carries charset when available (e.g. `text/html;charset=UTF-8`).
- */
-data class FetchResult(
-    val content: ByteArray,
-    val contentType: MimeType? = null,
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is FetchResult) return false
-        return content.contentEquals(other.content) &&
-            contentType == other.contentType
-    }
-
-    override fun hashCode(): Int {
-        var result = content.contentHashCode()
-        result = 31 * result + (contentType?.hashCode() ?: 0)
-        return result
-    }
-}
+import org.springframework.util.StreamUtils
+import java.io.InputStream
+import java.net.URI
+import java.nio.charset.Charset
+import kotlin.text.Charsets.UTF_8
 
 /**
  * Abstraction for fetching raw content from HTTP/HTTPS URIs.
@@ -55,7 +35,10 @@ interface ContentFetcher {
      * @return a [FetchResult] containing the raw bytes and HTTP metadata
      * @throws java.io.IOException if the fetch fails
      */
-    fun fetch(uri: URI): FetchResult
+    fun <T> fetch(
+        uri: URI,
+        mapper: ContentMapper<T>,
+    ): T
 }
 
 /**
@@ -65,19 +48,23 @@ interface ContentFetcher {
  * Mappers are composable via [then], allowing pipelines such as
  * `rssMapper.then(removeAds).then(translateTo(Language.FRENCH))`.
  */
-fun interface ContentMapper {
+fun interface ContentMapper<T> {
 
-    fun map(content: ByteArray, uri: URI): ByteArray
-
-    /**
-     * Compose this mapper with [next], producing a mapper that applies this first, then [next].
-     */
-    fun then(next: ContentMapper): ContentMapper = ContentMapper { content, uri ->
-        next.map(this.map(content, uri), uri)
-    }
+    fun map(
+        uri: URI,
+        contentType: MimeType?,
+        stream: InputStream
+    ): T
 
     companion object {
         @JvmField
-        val IDENTITY: ContentMapper = ContentMapper { content, _ -> content }
+        val BYTE_ARRAY: ContentMapper<ByteArray> = ContentMapper { _, _, stream -> stream.readBytes() }
+
+        @JvmField
+        val UTF_8_STRING: ContentMapper<String> =
+            ContentMapper { _, _, stream -> stream.bufferedReader(UTF_8).readText() }
+
     }
+
+
 }

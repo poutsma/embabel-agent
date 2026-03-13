@@ -18,11 +18,10 @@ package com.embabel.agent.rag.ingestion
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.net.URI
-import org.springframework.util.MimeType
 
 class RoutingContentFetcherTest {
 
@@ -30,49 +29,45 @@ class RoutingContentFetcherTest {
     private val mediumFetcher = mockk<ContentFetcher>()
     private val substackFetcher = mockk<ContentFetcher>()
 
-    private fun fetchResult(content: String) = FetchResult(
-        content = content.toByteArray(),
-        contentType = MimeType("text", "html"),
-    )
+    private fun setupFetcher(fetcher: ContentFetcher, content: String) {
+        every { fetcher.fetch<Any>(any(), any()) } answers {
+            val mapper = secondArg<ContentMapper<Any>>()
+            mapper.map(firstArg<URI>(), null, content.byteInputStream())
+        }
+    }
 
     @Nested
     inner class Routing {
 
         @Test
         fun `routes to matching fetcher when URI matches pattern`() {
-            val expected = fetchResult("medium content")
-            every { mediumFetcher.fetch(any()) } returns expected
-
+            setupFetcher(mediumFetcher, "medium content")
             val router = RoutingContentFetcher(
                 default = defaultFetcher,
                 routes = listOf("https://medium.com/**" to mediumFetcher),
             )
-            val result = router.fetch(URI("https://medium.com/some-article"))
+            router.fetch(URI("https://medium.com/some-article"), ContentMapper.BYTE_ARRAY)
 
-            assertEquals(expected, result)
-            verify(exactly = 0) { defaultFetcher.fetch(any()) }
+            verify(exactly = 1) { mediumFetcher.fetch<Any>(any(), any()) }
+            verify(exactly = 0) { defaultFetcher.fetch<Any>(any(), any()) }
         }
 
         @Test
         fun `falls back to default when no pattern matches`() {
-            val expected = fetchResult("default content")
-            every { defaultFetcher.fetch(any()) } returns expected
-
+            setupFetcher(defaultFetcher, "default content")
             val router = RoutingContentFetcher(
                 default = defaultFetcher,
                 routes = listOf("https://medium.com/**" to mediumFetcher),
             )
-            val result = router.fetch(URI("https://example.com/article"))
+            router.fetch(URI("https://example.com/article"), ContentMapper.BYTE_ARRAY)
 
-            assertEquals(expected, result)
-            verify(exactly = 0) { mediumFetcher.fetch(any()) }
+            verify(exactly = 1) { defaultFetcher.fetch<Any>(any(), any()) }
+            verify(exactly = 0) { mediumFetcher.fetch<Any>(any(), any()) }
         }
 
         @Test
         fun `first matching route wins`() {
-            val expected = fetchResult("medium content")
-            every { mediumFetcher.fetch(any()) } returns expected
-
+            setupFetcher(mediumFetcher, "medium content")
             val router = RoutingContentFetcher(
                 default = defaultFetcher,
                 routes = listOf(
@@ -80,17 +75,15 @@ class RoutingContentFetcherTest {
                     "**/medium*/**" to substackFetcher,
                 ),
             )
-            val result = router.fetch(URI("https://medium.com/article"))
+            router.fetch(URI("https://medium.com/article"), ContentMapper.BYTE_ARRAY)
 
-            assertEquals(expected, result)
-            verify(exactly = 0) { substackFetcher.fetch(any()) }
+            verify(exactly = 1) { mediumFetcher.fetch<Any>(any(), any()) }
+            verify(exactly = 0) { substackFetcher.fetch<Any>(any(), any()) }
         }
 
         @Test
         fun `works with multiple routes`() {
-            val expected = fetchResult("substack content")
-            every { substackFetcher.fetch(any()) } returns expected
-
+            setupFetcher(substackFetcher, "substack content")
             val router = RoutingContentFetcher(
                 default = defaultFetcher,
                 routes = listOf(
@@ -98,37 +91,33 @@ class RoutingContentFetcherTest {
                     "https://*.substack.com/**" to substackFetcher,
                 ),
             )
-            val result = router.fetch(URI("https://blog.substack.com/p/my-post"))
+            router.fetch(URI("https://blog.substack.com/p/my-post"), ContentMapper.BYTE_ARRAY)
 
-            assertEquals(expected, result)
+            verify(exactly = 1) { substackFetcher.fetch<Any>(any(), any()) }
         }
 
         @Test
         fun `supports wildcard for subdomain matching`() {
-            val expected = fetchResult("substack content")
-            every { substackFetcher.fetch(any()) } returns expected
-
+            setupFetcher(substackFetcher, "substack content")
             val router = RoutingContentFetcher(
                 default = defaultFetcher,
                 routes = listOf("https://*.substack.com/**" to substackFetcher),
             )
-            val result = router.fetch(URI("https://myblog.substack.com/p/my-post"))
+            router.fetch(URI("https://myblog.substack.com/p/my-post"), ContentMapper.BYTE_ARRAY)
 
-            assertEquals(expected, result)
+            verify(exactly = 1) { substackFetcher.fetch<Any>(any(), any()) }
         }
 
         @Test
         fun `supports double wildcard for path matching`() {
-            val expected = fetchResult("api content")
-            every { mediumFetcher.fetch(any()) } returns expected
-
+            setupFetcher(mediumFetcher, "api content")
             val router = RoutingContentFetcher(
                 default = defaultFetcher,
                 routes = listOf("**/api/v2/**" to mediumFetcher),
             )
-            val result = router.fetch(URI("https://example.com/api/v2/articles"))
+            router.fetch(URI("https://example.com/api/v2/articles"), ContentMapper.BYTE_ARRAY)
 
-            assertEquals(expected, result)
+            verify(exactly = 1) { mediumFetcher.fetch<Any>(any(), any()) }
         }
     }
 
@@ -137,16 +126,14 @@ class RoutingContentFetcherTest {
 
         @Test
         fun `works with map constructor`() {
-            val expected = fetchResult("medium content")
-            every { mediumFetcher.fetch(any()) } returns expected
-
+            setupFetcher(mediumFetcher, "medium content")
             val router = RoutingContentFetcher(
                 defaultFetcher,
                 mapOf("https://medium.com/**" to mediumFetcher),
             )
-            val result = router.fetch(URI("https://medium.com/article"))
+            router.fetch(URI("https://medium.com/article"), ContentMapper.BYTE_ARRAY)
 
-            assertEquals(expected, result)
+            verify(exactly = 1) { mediumFetcher.fetch<Any>(any(), any()) }
         }
     }
 }

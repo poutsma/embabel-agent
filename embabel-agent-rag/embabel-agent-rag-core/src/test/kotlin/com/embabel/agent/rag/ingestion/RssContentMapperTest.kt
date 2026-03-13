@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -57,9 +58,10 @@ class RssContentMapperTest {
 
     private fun feedBytes() = feedWithContentEncoded.toByteArray(StandardCharsets.UTF_8)
 
-    private fun mapToString(feedXml: ByteArray, articleUri: URI): String {
-        return String(mapper.map(feedXml, articleUri), StandardCharsets.UTF_8)
-    }
+    private fun mapToString(feedXml: ByteArray, articleUri: URI): String =
+        mapper.map(articleUri, null, ByteArrayInputStream(feedXml))
+            .bufferedReader(StandardCharsets.UTF_8)
+            .use { it.readText() }
 
     @Nested
     inner class ArticleExtraction {
@@ -110,7 +112,7 @@ class RssContentMapperTest {
         @Test
         fun `throws IOException when article not found in feed`() {
             val exception = assertThrows<IOException> {
-                mapper.map(feedBytes(), URI("https://blog.com/pub/nonexistent-article"))
+                mapToString(feedBytes(), URI("https://blog.com/pub/nonexistent-article"))
             }
             assertTrue(exception.message!!.contains("Article not found"))
         }
@@ -157,26 +159,11 @@ class RssContentMapperTest {
             """.trimIndent()
 
             assertThrows<IOException> {
-                mapper.map(
+                mapToString(
                     feedNoContent.toByteArray(StandardCharsets.UTF_8),
                     URI("https://blog.com/pub/empty-article"),
                 )
             }
-        }
-    }
-
-    @Nested
-    inner class Composition {
-
-        @Test
-        fun `can be composed with other mappers via then`() {
-            val uppercaseMapper = ContentMapper { content, _ ->
-                String(content).uppercase().toByteArray()
-            }
-            val composed = mapper.then(uppercaseMapper)
-            val result = String(composed.map(feedBytes(), URI("https://blog.com/pub/first-article")))
-
-            assertTrue(result.contains("FULL ARTICLE CONTENT HERE"))
         }
     }
 }

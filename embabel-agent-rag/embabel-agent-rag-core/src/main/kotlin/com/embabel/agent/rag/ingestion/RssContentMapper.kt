@@ -16,13 +16,15 @@
 package com.embabel.agent.rag.ingestion
 
 import org.slf4j.LoggerFactory
+import org.springframework.util.MimeType
 import org.springframework.web.util.HtmlUtils
 import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.URI
-import java.nio.charset.StandardCharsets
 import javax.xml.stream.XMLInputFactory
 import javax.xml.stream.XMLStreamConstants
+import kotlin.text.Charsets.UTF_8
 
 /**
  * [ContentMapper] that extracts a single article's HTML from RSS/Atom feed XML.
@@ -36,7 +38,7 @@ import javax.xml.stream.XMLStreamConstants
  * Uses StAX (streaming) parsing to avoid loading the full document into memory,
  * with external entity retrieval disabled to prevent XXE attacks.
  */
-class RssContentMapper : ContentMapper {
+class RssContentMapper : ContentMapper<InputStream> {
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -49,16 +51,20 @@ class RssContentMapper : ContentMapper {
         setProperty(XMLInputFactory.IS_COALESCING, true)
     }
 
-    override fun map(content: ByteArray, uri: URI): ByteArray {
-        val html = extractArticleContent(content, uri)
+    override fun map(
+        uri: URI,
+        contentType: MimeType?,
+        stream: InputStream
+    ): InputStream {
+        val html = extractArticleContent(stream, uri)
             ?: throw IOException("Article not found in RSS feed for URI: $uri")
-        logger.info("Extracted {} chars of article content from RSS", html.length)
-        return html.toByteArray(StandardCharsets.UTF_8)
+        logger.info("Extracted {} chars of article content from RSS", html.size)
+        return ByteArrayInputStream(html)
     }
 
-    private fun extractArticleContent(feedBytes: ByteArray, articleUri: URI): String? {
+    private fun extractArticleContent(inputStream: InputStream, articleUri: URI): ByteArray? {
         val articleSlug = articleUri.path.trimEnd('/').substringAfterLast('/')
-        val reader = xmlInputFactory.createXMLStreamReader(ByteArrayInputStream(feedBytes))
+        val reader = xmlInputFactory.createXMLStreamReader(inputStream)
         try {
             var inItem = false
             var currentElement: String? = null
@@ -120,7 +126,7 @@ class RssContentMapper : ContentMapper {
                                             <h1>$escapedTitle</h1>
                                             $html
                                             </body></html>
-                                        """.trimIndent()
+                                        """.trimIndent().toByteArray(UTF_8)
                                     }
                                 }
                             }
