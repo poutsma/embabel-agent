@@ -15,15 +15,14 @@
  */
 package com.embabel.agent.rag.ingestion
 
+import org.slf4j.LoggerFactory
+import org.springframework.web.util.HtmlUtils
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.URI
 import java.nio.charset.StandardCharsets
-import javax.xml.parsers.DocumentBuilderFactory
-import org.slf4j.LoggerFactory
-import org.springframework.web.util.HtmlUtils
-import org.w3c.dom.Element
-import org.w3c.dom.NodeList
+import javax.xml.stream.XMLInputFactory
+import javax.xml.stream.XMLStreamConstants
 
 /**
  * [ContentMapper] that extracts a single article's HTML from RSS/Atom feed XML.
@@ -33,12 +32,21 @@ import org.w3c.dom.NodeList
  * wrapped in a minimal HTML document.
  *
  * Prefers `content:encoded` (full HTML) over `description` (summary).
+ *
+ * Uses StAX (streaming) parsing to avoid loading the full document into memory,
+ * with external entity retrieval disabled to prevent XXE attacks.
  */
 class RssContentMapper : ContentMapper {
 
     private val logger = LoggerFactory.getLogger(javaClass)
-    private val documentBuilderFactory = DocumentBuilderFactory.newInstance().apply {
-        isNamespaceAware = true
+
+    private val xmlInputFactory = XMLInputFactory.newInstance().apply {
+        // Prevent XXE: disable external entity resolution and DTD loading
+        setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false)
+        setProperty(XMLInputFactory.SUPPORT_DTD, false)
+        setProperty(XMLInputFactory.IS_NAMESPACE_AWARE, true)
+        // Coalesce adjacent CHARACTERS and CDATA into a single CHARACTERS event
+        setProperty(XMLInputFactory.IS_COALESCING, true)
     }
 
     override fun map(content: ByteArray, uri: URI): ByteArray {
@@ -49,36 +57,81 @@ class RssContentMapper : ContentMapper {
     }
 
     private fun extractArticleContent(feedBytes: ByteArray, articleUri: URI): String? {
-        val doc = documentBuilderFactory.newDocumentBuilder()
-            .parse(ByteArrayInputStream(feedBytes))
-        val items: NodeList = doc.getElementsByTagName("item")
         val articleSlug = articleUri.path.trimEnd('/').substringAfterLast('/')
-        for (i in 0 until items.length) {
-            val item = items.item(i) as Element
-            val link = item.getElementsByTagName("link").item(0)?.textContent.orEmpty()
-            val guid = item.getElementsByTagName("guid").item(0)?.textContent.orEmpty()
-            if (link.contains(articleSlug) || guid.contains(articleSlug)) {
-                val rawTitle = item.getElementsByTagName("title").item(0)?.textContent ?: "Untitled"
-                val title = HtmlUtils.htmlEscape(rawTitle)
-                val html = getContentEncoded(item)
-                    ?: item.getElementsByTagName("description").item(0)?.textContent
-                if (html != null) {
-                    return """
-                        <html><head><title>$title</title></head>
-                        <body>
-                        <h1>$title</h1>
-                        $html
-                        </body></html>
-                    """.trimIndent()
+        val reader = xmlInputFactory.createXMLStreamReader(ByteArrayInputStream(feedBytes))
+        try {
+            var inItem = false
+            var currentElement: String? = null
+            var currentNs: String? = null
+            val textBuf = StringBuilder()
+
+            var link = ""
+            var guid = ""
+            var title = ""
+            var description: String? = null
+            var contentEncoded: String? = null
+
+            while (reader.hasNext()) {
+                when (reader.next()) {
+                    XMLStreamConstants.START_ELEMENT -> {
+                        val localName = reader.localName
+                        if (!inItem) {
+                            if (localName == "item") {
+                                inItem = true
+                                link = ""; guid = ""; title = ""; description = null; contentEncoded = null
+                            }
+                        } else {
+                            currentElement = localName
+                            currentNs = reader.namespaceURI
+                            textBuf.clear()
+                        }
+                    }
+
+                    XMLStreamConstants.CHARACTERS -> {
+                        if (inItem && currentElement != null) {
+                            textBuf.append(reader.text)
+                        }
+                    }
+
+                    XMLStreamConstants.END_ELEMENT -> {
+                        val localName = reader.localName
+                        if (inItem) {
+                            if (localName == currentElement) {
+                                val text = textBuf.toString()
+                                when {
+                                    currentElement == "link" -> link = text
+                                    currentElement == "guid" -> guid = text
+                                    currentElement == "title" -> title = text
+                                    currentElement == "description" -> description = text
+                                    currentElement == "encoded" && currentNs == CONTENT_NS -> contentEncoded = text
+                                }
+                                currentElement = null
+                            }
+                            if (localName == "item") {
+                                inItem = false
+                                if (link.contains(articleSlug) || guid.contains(articleSlug)) {
+                                    val rawTitle = title.ifEmpty { "Untitled" }
+                                    val escapedTitle = HtmlUtils.htmlEscape(rawTitle)
+                                    val html = contentEncoded ?: description
+                                    if (html != null) {
+                                        return """
+                                            <html><head><title>$escapedTitle</title></head>
+                                            <body>
+                                            <h1>$escapedTitle</h1>
+                                            $html
+                                            </body></html>
+                                        """.trimIndent()
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
+        } finally {
+            reader.close()
         }
         return null
-    }
-
-    private fun getContentEncoded(item: Element): String? {
-        val nodes = item.getElementsByTagNameNS(CONTENT_NS, "encoded")
-        return if (nodes.length > 0) nodes.item(0).textContent else null
     }
 
     companion object {
